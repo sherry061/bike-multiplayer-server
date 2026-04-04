@@ -1,0 +1,17 @@
+{
+  "name": "bike-multiplayer-server",
+  "version": "1.0.0",
+  "description": "Bike racing multiplayer server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  }
+}
