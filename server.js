@@ -156,31 +156,28 @@ io.on("connection", (socket) => {
 
   // START GAME
   socket.on("startGame", () => {
-    try {
-      const roomCode = players[socket.id]?.roomCode;
-      if (!roomCode || !rooms[roomCode]) return;
+  try {
+    const roomCode = players[socket.id]?.roomCode;
+    if (!roomCode || !rooms[roomCode]) return;
 
-      const room = rooms[roomCode];
+    const room = rooms[roomCode];
 
-      if (room.hostSocketId !== socket.id) return;
-      if (room.players.length < 2) {
-        console.log(`Start blocked: room ${roomCode} has less than 2 players`);
-        return;
-      }
-      if (!room.selectedScene) {
-        console.log(`Start blocked: room ${roomCode} has no selected scene`);
-        return;
-      }
+    if (room.hostSocketId !== socket.id) return;
+    if (room.players.length < 2) return;
+    if (!room.selectedScene) return;
 
-      io.to(roomCode).emit("gameStarting", {
-        sceneName: room.selectedScene
-      });
+    const startAt = Date.now() + 8000;
 
-      console.log(`Game starting in room ${roomCode} on scene ${room.selectedScene}`);
-    } catch (err) {
-      console.error("startGame error:", err);
-    }
-  });
+    io.to(roomCode).emit("gameStarting", {
+      sceneName: room.selectedScene,
+      startAt: startAt
+    });
+
+    console.log(`Game starting in room ${roomCode} on scene ${room.selectedScene} at ${startAt}`);
+  } catch (err) {
+    console.error("startGame error:", err);
+  }
+});
 
   // LEAVE ROOM
   socket.on("leaveRoom", () => {
