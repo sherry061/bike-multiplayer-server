@@ -83,7 +83,8 @@ io.on("connection", (socket) => {
             socketId: socket.id,
             playerId: playerId
           }
-        ]
+        ],
+        readyPlayers: new Set()
       };
 
       socket.join(roomCode);
@@ -123,6 +124,9 @@ io.on("connection", (socket) => {
         });
       }
 
+      // ensure ready set exists
+      room.readyPlayers = room.readyPlayers || new Set();
+
       socket.join(roomCode);
 
       console.log(`${playerId} joined room ${roomCode}`);
@@ -148,7 +152,9 @@ io.on("connection", (socket) => {
 
       room.selectedScene = data?.sceneName || "";
 
-      console.log(`[MAP SELECTED] room=${roomCode} host=${players[socket.id]?.playerId} scene=${room.selectedScene}`);
+      console.log(
+        `[MAP SELECTED] room=${roomCode} host=${players[socket.id]?.playerId} scene=${room.selectedScene}`
+      );
 
       io.to(roomCode).emit("mapSelected", {
         sceneName: room.selectedScene
@@ -189,17 +195,36 @@ io.on("connection", (socket) => {
     }
   });
 
-socket.on('sceneReady', ({ roomCode, playerId }) => {
-  const room = rooms[roomCode];
-  if (!room) return;
-  room.readyPlayers = room.readyPlayers || new Set();
-  room.readyPlayers.add(playerId);
-  if (room.readyPlayers.size >= room.players.length) {
-    io.to(roomCode).emit('allPlayersReady');
-    room.readyPlayers.clear();
-  }
-});
+  // BIKE READY (replaces sceneReady)
+  socket.on("bikeReady", (data) => {
+    try {
+      const roomCode = data?.roomCode || players[socket.id]?.roomCode;
+      if (!roomCode || !rooms[roomCode]) return;
 
+      const room = rooms[roomCode];
+      const playerId = players[socket.id]?.playerId;
+      if (!playerId) return;
+
+      room.readyPlayers = room.readyPlayers || new Set();
+      room.readyPlayers.add(playerId);
+
+      console.log(
+        `[BIKE READY] room=${roomCode} playerId=${playerId} ready=${room.readyPlayers.size}/${room.players.length}`
+      );
+
+      if (room.readyPlayers.size >= room.players.length) {
+        // Optional re-sync start time (ms)
+        const startAt = Date.now() + 3000;
+
+        io.to(roomCode).emit("allBikesReady", { startAt });
+        console.log(`[ALL BIKES READY] room=${roomCode} startAt=${startAt}`);
+
+        room.readyPlayers.clear();
+      }
+    } catch (err) {
+      console.error("bikeReady error:", err);
+    }
+  });
 
   // LEAVE ROOM
   socket.on("leaveRoom", () => {
@@ -249,6 +274,11 @@ function handleLeaveRoom(socket) {
   if (!roomCode || !rooms[roomCode]) return;
 
   const room = rooms[roomCode];
+
+  // remove from ready set if present
+  if (room.readyPlayers && player.playerId) {
+    room.readyPlayers.delete(player.playerId);
+  }
 
   room.players = room.players.filter(p => p.socketId !== socket.id);
 
