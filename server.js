@@ -8,6 +8,7 @@ const server = http.createServer(app);
 app.get("/", (req, res) => {
   res.send("Bike multiplayer server is running");
 });
+
 const io = new Server(server, {
   cors: {
     origin: "*"
@@ -111,10 +112,13 @@ io.on("connection", (socket) => {
       players[socket.id].playerId = playerId;
       players[socket.id].roomCode = roomCode;
 
-      room.players.push({
-        socketId: socket.id,
-        playerId: playerId
-      });
+      const alreadyInRoom = room.players.some(p => p.socketId === socket.id);
+      if (!alreadyInRoom) {
+        room.players.push({
+          socketId: socket.id,
+          playerId: playerId
+        });
+      }
 
       socket.join(roomCode);
 
@@ -159,10 +163,20 @@ io.on("connection", (socket) => {
       const room = rooms[roomCode];
 
       if (room.hostSocketId !== socket.id) return;
+      if (room.players.length < 2) {
+        console.log(`Start blocked: room ${roomCode} has less than 2 players`);
+        return;
+      }
+      if (!room.selectedScene) {
+        console.log(`Start blocked: room ${roomCode} has no selected scene`);
+        return;
+      }
 
       io.to(roomCode).emit("gameStarting", {
         sceneName: room.selectedScene
       });
+
+      console.log(`Game starting in room ${roomCode} on scene ${room.selectedScene}`);
     } catch (err) {
       console.error("startGame error:", err);
     }
@@ -205,13 +219,11 @@ function handleLeaveRoom(socket) {
 
   socket.leave(roomCode);
 
-  // If host left, assign new host
   if (room.hostSocketId === socket.id && room.players.length > 0) {
     room.hostSocketId = room.players[0].socketId;
     room.hostPlayerId = room.players[0].playerId;
   }
 
-  // clear player room
   players[socket.id].roomCode = null;
 
   if (room.players.length === 0) {
@@ -222,6 +234,7 @@ function handleLeaveRoom(socket) {
   }
 }
 
+// ROOM-BASED PLAYER POSITION BROADCAST
 setInterval(() => {
   for (const roomCode in rooms) {
     const room = rooms[roomCode];
@@ -231,13 +244,19 @@ setInterval(() => {
       const socketId = p.socketId;
 
       if (players[socketId]) {
-        roomPlayers[p.playerId] = players[socketId];
+        roomPlayers[p.playerId] = {
+          x: players[socketId].x,
+          y: players[socketId].y,
+          z: players[socketId].z,
+          rotY: players[socketId].rotY
+        };
       }
     }
 
     io.to(roomCode).emit("playerPositions", roomPlayers);
   }
-}, 50);
+}, 50); // 20 Hz
+
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, "0.0.0.0", () => {
