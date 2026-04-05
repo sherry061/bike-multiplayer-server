@@ -189,6 +189,18 @@ io.on("connection", (socket) => {
     }
   });
 
+socket.on('sceneReady', ({ roomCode, playerId }) => {
+  const room = rooms[roomCode];
+  if (!room) return;
+  room.readyPlayers = room.readyPlayers || new Set();
+  room.readyPlayers.add(playerId);
+  if (room.readyPlayers.size >= room.players.length) {
+    io.to(roomCode).emit('allPlayersReady');
+    room.readyPlayers.clear();
+  }
+});
+
+
   // LEAVE ROOM
   socket.on("leaveRoom", () => {
     handleLeaveRoom(socket);
