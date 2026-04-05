@@ -223,9 +223,21 @@ function handleLeaveRoom(socket) {
 }
 
 setInterval(() => {
-  io.emit("playerPositions", players);
-}, 50);
+  for (const roomCode in rooms) {
+    const room = rooms[roomCode];
+    const roomPlayers = {};
 
+    for (const p of room.players) {
+      const socketId = p.socketId;
+
+      if (players[socketId]) {
+        roomPlayers[p.playerId] = players[socketId];
+      }
+    }
+
+    io.to(roomCode).emit("playerPositions", roomPlayers);
+  }
+}, 50);
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, "0.0.0.0", () => {
