@@ -186,13 +186,15 @@ io.on("connection", (socket) => {
 
   // PLAYER MOVE
   socket.on("playerMove", (data) => {
-    if (players[socket.id]) {
-      players[socket.id].x = data.x;
-      players[socket.id].y = data.y;
-      players[socket.id].z = data.z;
-      players[socket.id].rotY = data.rotY;
-    }
-  });
+  if (players[socket.id]) {
+    players[socket.id].x = data.x;
+    players[socket.id].y = data.y;
+    players[socket.id].z = data.z;
+    players[socket.id].rotY = data.rotY;
+
+    console.log(`[MOVE] ${players[socket.id].playerId} -> ${data.x}, ${data.y}, ${data.z}, ${data.rotY}`);
+  }
+});
 
   // DISCONNECT
   socket.on("disconnect", () => {
