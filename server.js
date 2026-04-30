@@ -476,14 +476,50 @@ socket.on("raceFinish", () => {
 
     // ✅ If all players finished → end race
     if (room.finishedPlayers.size >= room.players.length) {
-      room.state = "FINISHED";
+  room.state = "FINISHED";
 
-      console.log(`[RACE COMPLETE] ${roomCode}`);
+  console.log(`[RACE COMPLETE] ${roomCode}`);
 
-      io.to(roomCode).emit("raceComplete", {
-        results: room.finishOrder
-      });
+  io.to(roomCode).emit("raceComplete", {
+    results: room.finishOrder
+  });
+
+  // ✅ AUTO HANDLE WAGER PAYOUT
+  const wager = require("./wager.js").wagerRooms[roomCode];
+
+  if (wager && wager.state === "Locked") {
+    console.log(`[AUTO WAGER PAYOUT] ${roomCode}`);
+
+    const wagerModule = require("./wager.js");
+
+    // Build results format for payout
+    const formattedResults = room.finishOrder.map((player, index) => ({
+      userId: player.userId,
+      rank: index + 1,
+      teamId: wager.players.find(p => p.userId === player.userId)?.teamId ?? 0
+    }));
+
+    const payout = wagerModule.calculatePayout(
+      wager,
+      formattedResults,
+      false // individual match
+    );
+
+    // Log payout (replace with real WGC API call later)
+    for (const winner of payout.winners) {
+      console.log(`[PAYOUT] ${winner.username} +${winner.amount} SGC`);
     }
+
+    wager.state = "Completed";
+
+    io.to(roomCode).emit("wagerPayout", payout);
+
+    // Cleanup after 1 minute
+    setTimeout(() => {
+      delete wagerModule.wagerRooms[roomCode];
+    }, 60000);
+  }
+}
 
   } catch (err) {
     console.error("[RACE FINISH ERROR]", err);

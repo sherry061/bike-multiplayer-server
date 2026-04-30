@@ -501,5 +501,6 @@ module.exports = {
   initializeWagerHandlers,
   WagerState,
   WAGER_CONFIG,
-  wagerRooms
+  wagerRooms,
+  calculatePayout
 };
