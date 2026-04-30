@@ -251,42 +251,48 @@ io.on("connection", (socket) => {
   // ========================================
 
   socket.on("joinRoom", (data) => {
-    try {
-      const roomCode = data?.roomCode;
-      const userId = socket.user.userId;
-      const username = socket.user.username;
+  try {
+    const roomCode = data?.roomCode;
+    const roomName = data?.roomName;
+    const userId = socket.user.userId;
+    const username = socket.user.username;
 
-      if (!roomCode || !rooms[roomCode]) {
-        socket.emit("joinError", "Room not found");
-        return;
-      }
-
-      const room = rooms[roomCode];
-
-      players[socket.id].roomCode = roomCode;
-
-      const alreadyInRoom = room.players.some(p => p.socketId === socket.id);
-      if (!alreadyInRoom) {
-        room.players.push({
-          socketId: socket.id,
-          userId,
-          username
-        });
-      }
-
-      room.readyPlayers = room.readyPlayers || new Set();
-      socket.join(roomCode);
-
-      console.log(`[ROOM JOINED] ${username} → ${roomCode}`);
-
-      socket.emit("roomJoined", getRoomStateDto(roomCode));
-      io.to(roomCode).emit("roomUpdate", getRoomStateDto(roomCode));
-
-    } catch (err) {
-      console.error("[JOIN ROOM ERROR]", err);
-      socket.emit("joinError", "Failed to join room");
+    if (!roomCode || !roomName || !rooms[roomCode]) {
+      socket.emit("joinError", "Room not found");
+      return;
     }
-  });
+
+    const room = rooms[roomCode];
+
+    // ✅ Validate room name matches
+    if (room.hostUsername !== roomName) {
+      socket.emit("joinError", "Room name does not match");
+      return;
+    }
+
+    players[socket.id].roomCode = roomCode;
+
+    const alreadyInRoom = room.players.some(p => p.socketId === socket.id);
+    if (!alreadyInRoom) {
+      room.players.push({
+        socketId: socket.id,
+        userId,
+        username
+      });
+    }
+
+    socket.join(roomCode);
+
+    console.log(`[ROOM JOINED] ${username} → ${roomCode}`);
+
+    socket.emit("roomJoined", getRoomStateDto(roomCode));
+    io.to(roomCode).emit("roomUpdate", getRoomStateDto(roomCode));
+
+  } catch (err) {
+    console.error("[JOIN ROOM ERROR]", err);
+    socket.emit("joinError", "Failed to join room");
+  }
+});
 
   // ========================================
   // SELECT MAP
@@ -369,6 +375,49 @@ setTimeout(() => {
       console.error("[START GAME ERROR]", err);
     }
   });
+
+  // ========================================
+// QUICK MATCH
+// ========================================
+socket.on("quickMatch", () => {
+  try {
+    // Find any WAITING room with space
+    let targetRoom = null;
+
+    for (const code in rooms) {
+      const room = rooms[code];
+      if (room.state === "WAITING" && room.players.length < 6) {
+        targetRoom = room;
+        break;
+      }
+    }
+
+    if (targetRoom) {
+      const roomCode = targetRoom.roomCode;
+
+      players[socket.id].roomCode = roomCode;
+
+      targetRoom.players.push({
+        socketId: socket.id,
+        userId: socket.user.userId,
+        username: socket.user.username
+      });
+
+      socket.join(roomCode);
+
+      socket.emit("roomJoined", getRoomStateDto(roomCode));
+      io.to(roomCode).emit("roomUpdate", getRoomStateDto(roomCode));
+
+      console.log(`[QUICK MATCH JOIN] ${socket.user.username} → ${roomCode}`);
+    } else {
+      // No room found → create one
+      socket.emit("createRoom");
+    }
+
+  } catch (err) {
+    console.error("[QUICK MATCH ERROR]", err);
+  }
+});
 
   // ========================================
   // BIKE READY
