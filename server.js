@@ -166,6 +166,12 @@ io.use((socket, next) => {
 });
 
 // ========================================
+// WAGER SYSTEM
+// ========================================
+
+const wagerModule = require("./wager.js");
+
+// ========================================
 // SOCKET HANDLERS
 // ========================================
 
@@ -190,6 +196,9 @@ io.on("connection", (socket) => {
     username: socket.user.username
   });
 
+  // Initialize wager handlers for this socket
+  wagerModule.initializeWagerHandlers(io, socket, players, rooms);
+
   // ========================================
   // CREATE ROOM
   // ========================================
@@ -203,20 +212,24 @@ io.on("connection", (socket) => {
       players[socket.id].roomCode = roomCode;
 
       rooms[roomCode] = {
-        roomCode,
-        hostSocketId: socket.id,
-        hostUserId: userId,
-        hostUsername: username,
-        selectedScene: "",
-        players: [
-          {
-            socketId: socket.id,
-            userId,
-            username
-          }
-        ],
-        readyPlayers: new Set()
-      };
+  roomCode,
+  state: "WAITING", // WAITING | STARTING | RACING | FINISHED
+  hostSocketId: socket.id,
+  hostUserId: userId,
+  hostUsername: username,
+  selectedScene: "",
+  players: [
+    {
+      socketId: socket.id,
+      userId,
+      username
+    }
+  ],
+  readyPlayers: new Set(),
+  raceStartAt: null,
+  finishOrder: [],
+  finishedPlayers: new Set()
+};
 
       socket.join(roomCode);
 
@@ -328,13 +341,25 @@ io.on("connection", (socket) => {
         socket.emit("startError", "No map selected");
         return;
       }
-
+room.state = "STARTING";
+room.finishOrder = [];
+room.finishedPlayers = new Set();
       const startAt = Date.now() + 8000;
 
       io.to(roomCode).emit("gameStarting", {
         sceneName: room.selectedScene,
         startAt
       });
+
+      room.raceStartAt = startAt;
+
+// Change state to RACING after countdown
+setTimeout(() => {
+  if (rooms[roomCode]) {
+    rooms[roomCode].state = "RACING";
+    console.log(`[RACE STATE] ${roomCode} → RACING`);
+  }
+}, 8000);
 
       console.log(`[GAME STARTING] ${roomCode} → ${room.selectedScene} at ${startAt}`);
 
