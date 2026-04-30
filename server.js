@@ -187,6 +187,7 @@ io.on("connection", (socket) => {
   y: 0,
   z: 0,
   rotY: 0,
+  currentCheckpoint: 0,
   roomCode: null,
   lastUpdateAt: Date.now()
 };
@@ -463,6 +464,39 @@ setTimeout(() => {
 });
 
 // ========================================
+// CHECKPOINT HIT
+// ========================================
+socket.on("checkpointHit", (data) => {
+  const player = players[socket.id];
+  if (!player) return;
+
+  const roomCode = player.roomCode;
+  if (!roomCode || !rooms[roomCode]) return;
+
+  const room = rooms[roomCode];
+
+  if (room.state !== "RACING") return;
+
+  const checkpointIndex = data?.checkpointIndex;
+
+  if (typeof checkpointIndex !== "number") return;
+
+  // ✅ Only allow next sequential checkpoint
+  if (checkpointIndex === player.currentCheckpoint + 1) {
+    player.currentCheckpoint = checkpointIndex;
+
+    console.log(
+      `[CHECKPOINT] ${player.username} → ${checkpointIndex}`
+    );
+  } else {
+    console.log(
+      `[CHECKPOINT REJECTED] ${player.username} invalid checkpoint ${checkpointIndex}`
+    );
+  }
+});
+
+
+// ========================================
 // RACE FINISH
 // ========================================
 socket.on("raceFinish", () => {
@@ -487,6 +521,13 @@ socket.on("raceFinish", () => {
     if (room.finishedPlayers.has(userId)) {
       return;
     }
+
+// ✅ Require last checkpoint before finish
+const REQUIRED_CHECKPOINT = 10; // adjust to your track
+if (player.currentCheckpoint < REQUIRED_CHECKPOINT) {
+  console.log(`[FINISH REJECTED] ${socket.user.username} skipped checkpoints`);
+  return;
+}
 
     const serverTime = Date.now();
 
