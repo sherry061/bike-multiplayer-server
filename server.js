@@ -423,6 +423,74 @@ setTimeout(() => {
     player.rotY = data?.rotY ?? player.rotY;
   });
 
+// ========================================
+// RACE FINISH
+// ========================================
+socket.on("raceFinish", () => {
+  try {
+    const player = players[socket.id];
+    if (!player) return;
+
+    const roomCode = player.roomCode;
+    if (!roomCode || !rooms[roomCode]) return;
+
+    const room = rooms[roomCode];
+
+    // ✅ Only allow finish during active race
+    if (room.state !== "RACING") {
+      console.log(`[FINISH REJECTED] Not racing: ${roomCode}`);
+      return;
+    }
+
+    const userId = socket.user.userId;
+
+    // ✅ Prevent double finish
+    if (room.finishedPlayers.has(userId)) {
+      return;
+    }
+
+    const serverTime = Date.now();
+
+    // ✅ Basic minimum race time protection (10 seconds for now)
+    const MIN_RACE_TIME_MS = 10000;
+
+    if (serverTime - room.raceStartAt < MIN_RACE_TIME_MS) {
+      console.log(`[CHEAT DETECTED] ${socket.user.username} finished too early`);
+      return;
+    }
+
+    room.finishedPlayers.add(userId);
+
+    room.finishOrder.push({
+      userId,
+      username: socket.user.username,
+      finishedAt: serverTime
+    });
+
+    console.log(`[RACE FINISH] ${socket.user.username} finished in ${roomCode}`);
+
+    // ✅ Broadcast updated finish order
+    io.to(roomCode).emit("raceUpdate", {
+      finishOrder: room.finishOrder
+    });
+
+    // ✅ If all players finished → end race
+    if (room.finishedPlayers.size >= room.players.length) {
+      room.state = "FINISHED";
+
+      console.log(`[RACE COMPLETE] ${roomCode}`);
+
+      io.to(roomCode).emit("raceComplete", {
+        results: room.finishOrder
+      });
+    }
+
+  } catch (err) {
+    console.error("[RACE FINISH ERROR]", err);
+  }
+});
+
+
   // ========================================
   // DISCONNECT
   // ========================================
