@@ -253,40 +253,50 @@ io.on("connection", (socket) => {
   socket.on("joinRoom", (data) => {
   try {
     const roomCode = data?.roomCode;
-    const roomName = data?.roomName;
+    const roomName = data?.roomName; // only for private
     const userId = socket.user.userId;
     const username = socket.user.username;
 
-    if (!roomCode || !roomName || !rooms[roomCode]) {
+    if (!roomCode || !rooms[roomCode]) {
       socket.emit("joinError", "Room not found");
       return;
     }
 
     const room = rooms[roomCode];
 
-    // ✅ Validate room name matches
-    if (room.hostUsername !== roomName) {
-      socket.emit("joinError", "Room name does not match");
+    // ✅ If private join (roomName provided), validate name
+    if (roomName) {
+      if (room.hostUsername !== roomName) {
+        socket.emit("joinError", "Room name does not match");
+        return;
+      }
+    }
+
+    if (room.state !== "WAITING") {
+      socket.emit("joinError", "Room already started");
       return;
     }
 
-    players[socket.id].roomCode = roomCode;
-
-    const alreadyInRoom = room.players.some(p => p.socketId === socket.id);
-    if (!alreadyInRoom) {
-      room.players.push({
-        socketId: socket.id,
-        userId,
-        username
-      });
+    if (room.players.length >= 6) {
+      socket.emit("joinError", "Room is full");
+      return;
     }
 
+players[socket.id].roomCode = roomCode;
+const alreadyInRoom = room.players.some(p => p.socketId === socket.id);
+if (!alreadyInRoom) {
+  room.players.push({
+    socketId: socket.id,
+    userId,
+    username
+  });
+}
     socket.join(roomCode);
-
-    console.log(`[ROOM JOINED] ${username} → ${roomCode}`);
 
     socket.emit("roomJoined", getRoomStateDto(roomCode));
     io.to(roomCode).emit("roomUpdate", getRoomStateDto(roomCode));
+
+    console.log(`[ROOM JOINED] ${username} → ${roomCode}`);
 
   } catch (err) {
     console.error("[JOIN ROOM ERROR]", err);
@@ -361,6 +371,11 @@ room.finishedPlayers = new Set();
 
       room.raceStartAt = startAt;
 
+for (const p of room.players) {
+  if (players[p.socketId]) {
+    players[p.socketId].currentCheckpoint = 0;
+  }
+}
 // Change state to RACING after countdown
 setTimeout(() => {
   if (rooms[roomCode]) {
@@ -381,7 +396,6 @@ setTimeout(() => {
 // ========================================
 socket.on("quickMatch", () => {
   try {
-    // Find any WAITING room with space
     let targetRoom = null;
 
     for (const code in rooms) {
@@ -397,11 +411,14 @@ socket.on("quickMatch", () => {
 
       players[socket.id].roomCode = roomCode;
 
-      targetRoom.players.push({
-        socketId: socket.id,
-        userId: socket.user.userId,
-        username: socket.user.username
-      });
+      const alreadyInRoom = targetRoom.players.some(p => p.socketId === socket.id);
+      if (!alreadyInRoom) {
+        targetRoom.players.push({
+          socketId: socket.id,
+          userId: socket.user.userId,
+          username: socket.user.username
+        });
+      }
 
       socket.join(roomCode);
 
@@ -410,12 +427,68 @@ socket.on("quickMatch", () => {
 
       console.log(`[QUICK MATCH JOIN] ${socket.user.username} → ${roomCode}`);
     } else {
-      // No room found → create one
-      socket.emit("createRoom");
+      // ✅ Directly create room (same logic as createRoom)
+      const userId = socket.user.userId;
+      const username = socket.user.username;
+      const roomCode = createUniqueRoomCode();
+
+      players[socket.id].roomCode = roomCode;
+
+      rooms[roomCode] = {
+        roomCode,
+        state: "WAITING",
+        hostSocketId: socket.id,
+        hostUserId: userId,
+        hostUsername: username,
+        selectedScene: "",
+        players: [
+          {
+            socketId: socket.id,
+            userId,
+            username
+          }
+        ],
+        readyPlayers: new Set(),
+        raceStartAt: null,
+        finishOrder: [],
+        finishedPlayers: new Set()
+      };
+
+      socket.join(roomCode);
+
+      socket.emit("roomCreated", getRoomStateDto(roomCode));
+      io.to(roomCode).emit("roomUpdate", getRoomStateDto(roomCode));
+
+      console.log(`[QUICK MATCH CREATE] ${username} → ${roomCode}`);
     }
 
   } catch (err) {
     console.error("[QUICK MATCH ERROR]", err);
+  }
+});
+
+socket.on("getPublicRooms", () => {
+  try {
+    const publicRooms = [];
+
+    for (const code in rooms) {
+      const room = rooms[code];
+
+      if (room.state === "WAITING") {
+        publicRooms.push({
+          roomCode: room.roomCode,
+          hostUsername: room.hostUsername,
+          playerCount: room.players.length,
+          maxPlayers: 6,
+          selectedScene: room.selectedScene || "Not selected"
+        });
+      }
+    }
+
+    socket.emit("publicRoomsList", publicRooms);
+
+  } catch (err) {
+    console.error("[GET PUBLIC ROOMS ERROR]", err);
   }
 });
 
@@ -558,7 +631,11 @@ socket.on("raceFinish", () => {
 
     const room = rooms[roomCode];
 
-    // ✅ Only allow finish during active race
+    // ✅ Ensure player is actually in this room
+    if (!room.players.some(p => p.socketId === socket.id)) {
+      return;
+    }
+
     if (room.state !== "RACING") {
       console.log(`[FINISH REJECTED] Not racing: ${roomCode}`);
       return;
@@ -566,21 +643,15 @@ socket.on("raceFinish", () => {
 
     const userId = socket.user.userId;
 
-    // ✅ Prevent double finish
-    if (room.finishedPlayers.has(userId)) {
+    if (room.finishedPlayers.has(userId)) return;
+
+    const REQUIRED_CHECKPOINT = 10;
+    if (player.currentCheckpoint < REQUIRED_CHECKPOINT) {
+      console.log(`[FINISH REJECTED] ${socket.user.username} skipped checkpoints`);
       return;
     }
 
-// ✅ Require last checkpoint before finish
-const REQUIRED_CHECKPOINT = 10; // adjust to your track
-if (player.currentCheckpoint < REQUIRED_CHECKPOINT) {
-  console.log(`[FINISH REJECTED] ${socket.user.username} skipped checkpoints`);
-  return;
-}
-
     const serverTime = Date.now();
-
-    // ✅ Basic minimum race time protection (10 seconds for now)
     const MIN_RACE_TIME_MS = 10000;
 
     if (serverTime - room.raceStartAt < MIN_RACE_TIME_MS) {
@@ -598,20 +669,52 @@ if (player.currentCheckpoint < REQUIRED_CHECKPOINT) {
 
     console.log(`[RACE FINISH] ${socket.user.username} finished in ${roomCode}`);
 
-    // ✅ Broadcast updated finish order
     io.to(roomCode).emit("raceUpdate", {
       finishOrder: room.finishOrder
     });
 
-    // ✅ If all players finished → end race
     if (room.finishedPlayers.size >= room.players.length) {
-  room.state = "FINISHED";
+      room.state = "FINISHED";
 
-  console.log(`[RACE COMPLETE] ${roomCode}`);
+      console.log(`[RACE COMPLETE] ${roomCode}`);
 
-  io.to(roomCode).emit("raceComplete", {
-    results: room.finishOrder
-  });
+      io.to(roomCode).emit("raceComplete", {
+        results: room.finishOrder
+      });
+
+      const wager = require("./wager.js").wagerRooms[roomCode];
+
+      if (wager && wager.state === "Locked") {
+        console.log(`[AUTO WAGER PAYOUT] ${roomCode}`);
+
+        const wagerModule = require("./wager.js");
+
+        const formattedResults = room.finishOrder.map((player, index) => ({
+          userId: player.userId,
+          rank: index + 1,
+          teamId: wager.players.find(p => p.userId === player.userId)?.teamId ?? 0
+        }));
+
+        const payout = wagerModule.calculatePayout(
+          wager,
+          formattedResults,
+          false
+        );
+
+        wager.state = "Completed";
+
+        io.to(roomCode).emit("wagerPayout", payout);
+
+        setTimeout(() => {
+          delete wagerModule.wagerRooms[roomCode];
+        }, 60000);
+      }
+    }
+
+  } catch (err) {
+    console.error("[RACE FINISH ERROR]", err);
+  }
+});
 
   // ✅ AUTO HANDLE WAGER PAYOUT
   const wager = require("./wager.js").wagerRooms[roomCode];
