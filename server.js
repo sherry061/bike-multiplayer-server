@@ -180,15 +180,16 @@ io.on("connection", (socket) => {
 
   // Initialize player state
   players[socket.id] = {
-    socketId: socket.id,
-    userId: socket.user.userId,
-    username: socket.user.username,
-    x: 0,
-    y: 0,
-    z: 0,
-    rotY: 0,
-    roomCode: null
-  };
+  socketId: socket.id,
+  userId: socket.user.userId,
+  username: socket.user.username,
+  x: 0,
+  y: 0,
+  z: 0,
+  rotY: 0,
+  roomCode: null,
+  lastUpdateAt: Date.now()
+};
 
   socket.emit("welcome", {
     myId: socket.id,
@@ -414,14 +415,52 @@ setTimeout(() => {
   // ========================================
 
   socket.on("playerMove", (data) => {
-    const player = players[socket.id];
-    if (!player) return;
+  const player = players[socket.id];
+  if (!player) return;
 
+  const roomCode = player.roomCode;
+  if (!roomCode || !rooms[roomCode]) return;
+
+  const room = rooms[roomCode];
+
+  // ✅ Only validate during race
+  if (room.state !== "RACING") {
     player.x = data?.x ?? player.x;
     player.y = data?.y ?? player.y;
     player.z = data?.z ?? player.z;
     player.rotY = data?.rotY ?? player.rotY;
-  });
+    return;
+  }
+
+  const now = Date.now();
+  const deltaTime = (now - player.lastUpdateAt) / 1000; // seconds
+
+  if (deltaTime <= 0) return;
+
+  const newX = data?.x ?? player.x;
+  const newY = data?.y ?? player.y;
+  const newZ = data?.z ?? player.z;
+
+  const dx = newX - player.x;
+  const dy = newY - player.y;
+  const dz = newZ - player.z;
+
+  const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const speed = distance / deltaTime;
+
+  const MAX_ALLOWED_SPEED = 50; // Adjust based on real bike speed
+
+  if (speed > MAX_ALLOWED_SPEED) {
+    console.log(`[CHEAT DETECTED] ${player.username} speed=${speed.toFixed(2)}`);
+    return; // Reject movement update
+  }
+
+  player.x = newX;
+  player.y = newY;
+  player.z = newZ;
+  player.rotY = data?.rotY ?? player.rotY;
+  player.lastUpdateAt = now;
+});
 
 // ========================================
 // RACE FINISH
