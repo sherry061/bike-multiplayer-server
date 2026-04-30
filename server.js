@@ -668,6 +668,37 @@ function handleLeaveRoom(socket) {
     room.readyPlayers.delete(player.userId);
   }
 
+  // ✅ HANDLE FORFEIT DURING ACTIVE RACE
+if (room.state === "RACING") {
+  const userId = socket.user?.userId;
+
+  if (userId && !room.finishedPlayers.has(userId)) {
+    console.log(`[FORFEIT] ${socket.user.username} disconnected during race`);
+
+    room.finishedPlayers.add(userId);
+
+    room.finishOrder.push({
+      userId,
+      username: socket.user.username,
+      finishedAt: Date.now(),
+      forfeit: true
+    });
+
+    io.to(roomCode).emit("raceUpdate", {
+      finishOrder: room.finishOrder
+    });
+
+    // ✅ If all players now accounted for, complete race
+    if (room.finishedPlayers.size >= room.players.length) {
+      room.state = "FINISHED";
+
+      io.to(roomCode).emit("raceComplete", {
+        results: room.finishOrder
+      });
+    }
+  }
+}
+
   room.players = room.players.filter(p => p.socketId !== socket.id);
   socket.leave(roomCode);
 
