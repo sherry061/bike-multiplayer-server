@@ -119,7 +119,8 @@ io.use((socket, next) => {
     socket.user = {
       userId: payload.userId,
       username: payload.username,
-      providerUserId: payload.providerUserId
+      providerUserId: payload.providerUserId,
+      wgcAccessToken: payload.wgcAccessToken   // ← THIS WAS MISSING
     };
 
     console.log("[SOCKET] Auth success:", socket.user.username);
