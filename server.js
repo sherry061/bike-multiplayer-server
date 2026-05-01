@@ -63,18 +63,25 @@ app.post("/auth/validate", async (req, res) => {
     console.log(`[AUTH] ✅ WGC verified: ${profile.displayname} — gems: ${gems}`);
 
     // Create / reuse internal user
-    let user = Object.values(users).find(u => u.providerUserId === profile.id);
-    if (!user) {
-      const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      user = {
-        userId,
-        providerUserId: profile.id,
-        username: profile.displayname || profile.username || "Player",
-        createdAt: new Date().toISOString()
-      };
-      users[userId] = user;
-    }
+    // ✅ Use WGC profile.id directly as internal userId
+const userId = String(profile.id);
 
+let user = users[userId];
+
+if (!user) {
+  user = {
+    userId: userId,                   // ✅ STABLE ID
+    providerUserId: profile.id,
+    username: profile.displayname || profile.username || "Player",
+    createdAt: new Date().toISOString()
+  };
+
+  users[userId] = user;
+} else {
+  // ✅ Keep username updated
+  user.username = profile.displayname || profile.username || user.username;
+}
+console.log(`[AUTH] Internal userId: ${user.userId} (WGC id: ${profile.id})`);
     const sessionToken = jwt.sign(
       {
         userId: user.userId,
@@ -177,10 +184,11 @@ io.on("connection", (socket) => {
 socket.on("requestWGCBalance", async (callback) => {
   try {
     const accessToken = socket.user?.wgcAccessToken;
-    if (!accessToken) {
-      console.error("[WGC BALANCE] No access token for", socket.user?.username);
-      return callback ? callback(null) : null;
-    }
+
+if (!accessToken) {
+  console.error("[WGC BALANCE] Missing WGC token for", socket.user?.username);
+  return callback ? callback(null) : null;
+}
 
     // ✅ FIX: gems live in /Profile/basicinfo, not /wallet/balance
     const resp = await axios.get("https://api.worldgamecommunity.com/Profile/basicinfo", {
