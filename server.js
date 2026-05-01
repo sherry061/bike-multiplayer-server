@@ -167,6 +167,65 @@ io.on("connection", (socket) => {
   // Initialize wager handlers for this socket
   wagerModule.initializeWagerHandlers(io, socket, players, rooms);
 
+// ========================================
+// WGC PREMIUM CURRENCY HANDLERS (This is what was missing)
+// ========================================
+
+socket.on("requestWGCBalance", async (callback) => {
+  try {
+    const accessToken = socket.user?.wgcAccessToken; // ← you must store this during auth
+    if (!accessToken) throw new Error("No WGC token");
+
+    const resp = await axios.get("https://api.worldgamecommunity.com/wallet/balance", {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+
+    const balance = resp.data?.wgc ?? resp.data?.balance ?? 0;
+
+    // Update local player state (optional)
+    if (players[socket.id]) {
+      players[socket.id].wgcBalance = balance;
+    }
+
+    socket.emit("wgcBalanceResponse", { wgc: balance });
+    if (callback) callback({ wgc: balance });
+
+    console.log(`[WGC BALANCE] ${socket.user.username} → ${balance}`);
+  } catch (err) {
+    console.error("[WGC BALANCE ERROR]", err.message);
+    if (callback) callback(null);
+  }
+});
+
+socket.on("spendWGC", async (amount, callback) => {
+  try {
+    if (!amount || amount <= 0) throw new Error("Invalid amount");
+
+    const accessToken = socket.user?.wgcAccessToken;
+    if (!accessToken) throw new Error("No WGC token");
+
+    // 🔥 Real deduction call to WGC
+    const resp = await axios.post("https://api.worldgamecommunity.com/wallet/spend", {
+      amount: amount,
+      reason: "in-game-spend"   // or whatever your game uses
+    }, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+
+    const newBalance = resp.data?.newBalance ?? resp.data?.wgc ?? 0;
+
+    socket.emit("wgcBalanceResponse", { wgc: newBalance });
+    if (callback) callback({ success: true, newBalance });
+
+    console.log(`[WGC SPEND] ${socket.user.username} spent ${amount} → new balance ${newBalance}`);
+  } catch (err) {
+    console.error("[WGC SPEND ERROR]", err.message);
+    if (callback) callback({ success: false, error: err.message });
+  }
+});
+
+
+
   // ========================================
   // CREATE ROOM
   // ========================================
