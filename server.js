@@ -59,7 +59,8 @@ app.post("/auth/validate", async (req, res) => {
 
     const profile = profileResp.data;
     console.log(`[AUTH] ✅ WGC verified user: ${profile.displayname || profile.username}`);
-    console.log(`[WGC BALANCE] ✅ ${socket.user.username} → ${balance} WGC`);
+    const gems = profile.gems ?? 0;
+    console.log(`[AUTH] ✅ WGC verified: ${profile.displayname} — gems: ${gems}`);
 
     // Create / reuse internal user
     let user = Object.values(users).find(u => u.providerUserId === profile.id);
@@ -177,20 +178,20 @@ socket.on("requestWGCBalance", async (callback) => {
   try {
     const accessToken = socket.user?.wgcAccessToken;
     if (!accessToken) {
-      console.error("[WGC BALANCE] No access token");
+      console.error("[WGC BALANCE] No access token for", socket.user?.username);
       return callback ? callback(null) : null;
     }
 
-    const resp = await axios.get("https://api.worldgamecommunity.com/wallet/balance", {
+    // ✅ FIX: gems live in /Profile/basicinfo, not /wallet/balance
+    const resp = await axios.get("https://api.worldgamecommunity.com/Profile/basicinfo", {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
 
-    const balance = resp.data?.wgc ?? resp.data?.balance ?? 0;
+    const gems = resp.data?.gems ?? 0;
+    console.log(`[WGC BALANCE] ${socket.user.username} → ${gems} gems`);
 
-    console.log(`[WGC BALANCE] ${socket.user.username} → ${balance}`);
-
-    socket.emit("wgcBalanceResponse", { wgc: balance });
-    if (callback) callback({ wgc: balance });
+    socket.emit("wgcBalanceResponse", { wgc: gems });
+    if (callback) callback({ wgc: gems });
 
   } catch (err) {
     console.error("[WGC BALANCE ERROR]", err.message);
