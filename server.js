@@ -44,18 +44,20 @@ app.get("/", (req, res) => {
 });
 
 // ========================================
-// AUTH ENDPOINT (FINAL VERSION)
+// AUTH ENDPOINT - FULLY DEBUGGED VERSION
 // ========================================
 
 app.post("/auth/exchange", async (req, res) => {
   try {
     const { code } = req.body;
 
+    console.log(`[AUTH] === NEW EXCHANGE REQUEST ===`);
+    console.log(`[AUTH] Received code: ${code ? code.substring(0, 20) + "..." : "MISSING"}`);
+
     if (!code) {
+      console.log("[AUTH] ❌ Missing authorization code");
       return res.status(400).json({ error: "Missing authorization code" });
     }
-
-    console.log(`[AUTH] Exchanging code: ${code.substring(0, 15)}...`);
 
     const params = new URLSearchParams();
     params.append("grant_type", "authorization_code");
@@ -66,6 +68,8 @@ app.post("/auth/exchange", async (req, res) => {
     if (OAUTH_CLIENT_SECRET) {
       params.append("client_secret", OAUTH_CLIENT_SECRET);
     }
+
+    console.log(`[AUTH] Sending token exchange request to ${OAUTH_TOKEN_URL}`);
 
     const tokenResp = await axios.post(OAUTH_TOKEN_URL, params, {
       headers: { "Content-Type": "application/x-www-form-urlencoded" }
@@ -88,11 +92,11 @@ app.post("/auth/exchange", async (req, res) => {
         createdAt: new Date().toISOString()
       };
       users[userId] = user;
-      console.log(`[AUTH] New user created: ${userId}`);
+      console.log(`[AUTH] ✅ NEW USER CREATED → ${userId} | ${username}`);
     } else {
       user.username = username;
       user.lastLogin = new Date().toISOString();
-      console.log(`[AUTH] Existing user logged in: ${user.userId}`);
+      console.log(`[AUTH] ✅ EXISTING USER LOGIN → ${user.userId} | ${username}`);
     }
 
     const sessionToken = jwt.sign(
@@ -105,6 +109,8 @@ app.post("/auth/exchange", async (req, res) => {
       { expiresIn: "7d" }
     );
 
+    console.log(`[AUTH] ✅ JWT TOKEN CREATED SUCCESSFULLY for ${username}`);
+
     res.json({
       success: true,
       token: sessionToken,
@@ -115,10 +121,10 @@ app.post("/auth/exchange", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[AUTH] Exchange error:", err.response?.data || err.message);
+    console.error("[AUTH] ❌ Exchange error:", err.response?.data || err.message);
 
-    // Special handling for already-redeemed code
     if (err.response?.data?.error === 'invalid_grant') {
+      console.log("[AUTH] ⚠️ Authorization code has already been redeemed - client is retrying the same code!");
       return res.status(400).json({
         error: "invalid_grant",
         message: "Authorization code has already been redeemed. Please log in again to get a fresh code."
@@ -144,9 +150,10 @@ const io = new Server(server, {
 io.use((socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
+    console.log(`[SOCKET AUTH] Token present? ${token ? "YES" : "NO"}`);
 
     if (!token) {
-      console.log("[SOCKET] Connection rejected: no token");
+      console.log("[SOCKET AUTH] ❌ Rejected: no token provided");
       return next(new Error("Authentication required"));
     }
 
@@ -158,11 +165,11 @@ io.use((socket, next) => {
       providerUserId: payload.providerUserId
     };
 
-    console.log("[SOCKET] Auth success:", socket.user.username);
+    console.log(`[SOCKET AUTH] ✅ SUCCESS → ${socket.user.username} (${socket.id})`);
     next();
 
   } catch (err) {
-    console.log("[SOCKET] Auth failed:", err.message);
+    console.log(`[SOCKET AUTH] ❌ Failed: ${err.message}`);
     next(new Error("Invalid or expired token"));
   }
 });
@@ -178,7 +185,7 @@ const wagerModule = require("./wager.js");
 // ========================================
 
 io.on("connection", (socket) => {
-  console.log(`[CONNECT] ${socket.user.username} (${socket.id})`);
+  console.log(`[CONNECT] ${socket.user.username} (${socket.id}) connected successfully`);
 
   // Initialize player state
   players[socket.id] = {
@@ -269,7 +276,6 @@ io.on("connection", (socket) => {
 
     const room = rooms[roomCode];
 
-    // ✅ If private join (roomName provided), validate name
     if (roomName) {
       if (room.hostUsername !== roomName) {
         socket.emit("joinError", "Room name does not match");
@@ -341,7 +347,6 @@ socket.on("toggleReady", () => {
 
       const room = rooms[roomCode];
 
-      // Only host can select map
       if (room.hostSocketId !== socket.id) {
         console.log(`[SELECT MAP] Rejected: ${socket.user.username} is not host`);
         return;
@@ -393,7 +398,6 @@ socket.on("updateRoomName", (data) => {
 
       const room = rooms[roomCode];
 
-      // Only host can start
       if (room.hostSocketId !== socket.id) return;
 
       if (room.players.length < 2) {
@@ -422,7 +426,6 @@ for (const p of room.players) {
     players[p.socketId].currentCheckpoint = 0;
   }
 }
-// Change state to RACING after countdown
 setTimeout(() => {
   if (rooms[roomCode]) {
     rooms[roomCode].state = "RACING";
@@ -473,7 +476,6 @@ socket.on("quickMatch", () => {
 
       console.log(`[QUICK MATCH JOIN] ${socket.user.username} → ${roomCode}`);
     } else {
-      // ✅ Directly create room (same logic as createRoom)
       const userId = socket.user.userId;
       const username = socket.user.username;
       const roomCode = createUniqueRoomCode();
@@ -592,7 +594,6 @@ socket.on("getPublicRooms", () => {
 
   const room = rooms[roomCode];
 
-  // ✅ Only validate during race
   if (room.state !== "RACING") {
     player.x = data?.x ?? player.x;
     player.y = data?.y ?? player.y;
@@ -602,7 +603,7 @@ socket.on("getPublicRooms", () => {
   }
 
   const now = Date.now();
-  const deltaTime = (now - player.lastUpdateAt) / 1000; // seconds
+  const deltaTime = (now - player.lastUpdateAt) / 1000;
 
   if (deltaTime <= 0) return;
 
@@ -617,11 +618,11 @@ socket.on("getPublicRooms", () => {
   const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
   const speed = distance / deltaTime;
 
-  const MAX_ALLOWED_SPEED = 50; // Adjust based on real bike speed
+  const MAX_ALLOWED_SPEED = 50;
 
   if (speed > MAX_ALLOWED_SPEED) {
     console.log(`[CHEAT DETECTED] ${player.username} speed=${speed.toFixed(2)}`);
-    return; // Reject movement update
+    return;
   }
 
   player.x = newX;
@@ -649,20 +650,13 @@ socket.on("checkpointHit", (data) => {
 
   if (typeof checkpointIndex !== "number") return;
 
-  // ✅ Only allow next sequential checkpoint
   if (checkpointIndex === player.currentCheckpoint + 1) {
     player.currentCheckpoint = checkpointIndex;
-
-    console.log(
-      `[CHECKPOINT] ${player.username} → ${checkpointIndex}`
-    );
+    console.log(`[CHECKPOINT] ${player.username} → ${checkpointIndex}`);
   } else {
-    console.log(
-      `[CHECKPOINT REJECTED] ${player.username} invalid checkpoint ${checkpointIndex}`
-    );
+    console.log(`[CHECKPOINT REJECTED] ${player.username} invalid checkpoint ${checkpointIndex}`);
   }
 });
-
 
 // ========================================
 // RACE FINISH
@@ -677,15 +671,9 @@ socket.on("raceFinish", () => {
 
     const room = rooms[roomCode];
 
-    // ✅ Ensure player is actually in this room
-    if (!room.players.some(p => p.socketId === socket.id)) {
-      return;
-    }
+    if (!room.players.some(p => p.socketId === socket.id)) return;
 
-    if (room.state !== "RACING") {
-      console.log(`[FINISH REJECTED] Not racing: ${roomCode}`);
-      return;
-    }
+    if (room.state !== "RACING") return;
 
     const userId = socket.user.userId;
 
@@ -800,7 +788,7 @@ function getRoomStateDto(roomCode) {
 
   return {
   roomCode: room.roomCode,
-  roomName: room.roomName,   // ✅ ADD THIS
+  roomName: room.roomName,
   hostId: room.hostUserId,
   hostUsername: room.hostUsername,
   selectedScene: room.selectedScene,
@@ -825,7 +813,6 @@ function handleLeaveRoom(socket) {
     room.readyPlayers.delete(player.userId);
   }
 
-  // ✅ HANDLE FORFEIT DURING ACTIVE RACE
 if (room.state === "RACING") {
   const userId = socket.user?.userId;
 
@@ -845,7 +832,6 @@ if (room.state === "RACING") {
       finishOrder: room.finishOrder
     });
 
-    // ✅ If all players now accounted for, complete race
     if (room.finishedPlayers.size >= room.players.length) {
       room.state = "FINISHED";
 
@@ -859,7 +845,6 @@ if (room.state === "RACING") {
   room.players = room.players.filter(p => p.socketId !== socket.id);
   socket.leave(roomCode);
 
-  // Transfer host if host left
   if (room.hostSocketId === socket.id && room.players.length > 0) {
     room.hostSocketId = room.players[0].socketId;
     room.hostUserId = room.players[0].userId;
@@ -916,7 +901,7 @@ setInterval(() => {
   if (shouldDebug) {
     lastBroadcastDebugAt = now;
   }
-}, 50); // 20 Hz
+}, 50);
 
 // ========================================
 // START SERVER
