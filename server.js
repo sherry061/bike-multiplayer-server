@@ -173,7 +173,7 @@ io.on("connection", (socket) => {
 
 socket.on("requestWGCBalance", async (callback) => {
   try {
-    const accessToken = socket.user?.wgcAccessToken;   // ← must exist from auth
+    const accessToken = socket.user?.wgcAccessToken;
     if (!accessToken) {
       console.error("[WGC BALANCE] No access token");
       return callback ? callback(null) : null;
