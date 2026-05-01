@@ -59,6 +59,7 @@ app.post("/auth/validate", async (req, res) => {
 
     const profile = profileResp.data;
     console.log(`[AUTH] ✅ WGC verified user: ${profile.displayname || profile.username}`);
+    console.log(`[WGC BALANCE] ✅ ${socket.user.username} → ${balance} WGC`);
 
     // Create / reuse internal user
     let user = Object.values(users).find(u => u.providerUserId === profile.id);
