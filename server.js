@@ -168,13 +168,16 @@ io.on("connection", (socket) => {
   wagerModule.initializeWagerHandlers(io, socket, players, rooms);
 
 // ========================================
-// WGC PREMIUM CURRENCY HANDLERS (This is what was missing)
+// WGC PREMIUM CURRENCY HANDLERS (MISSING - THIS IS WHY BALANCE IS 0)
 // ========================================
 
 socket.on("requestWGCBalance", async (callback) => {
   try {
-    const accessToken = socket.user?.wgcAccessToken; // ← you must store this during auth
-    if (!accessToken) throw new Error("No WGC token");
+    const accessToken = socket.user?.wgcAccessToken;   // ← must exist from auth
+    if (!accessToken) {
+      console.error("[WGC BALANCE] No access token");
+      return callback ? callback(null) : null;
+    }
 
     const resp = await axios.get("https://api.worldgamecommunity.com/wallet/balance", {
       headers: { Authorization: `Bearer ${accessToken}` }
@@ -182,15 +185,11 @@ socket.on("requestWGCBalance", async (callback) => {
 
     const balance = resp.data?.wgc ?? resp.data?.balance ?? 0;
 
-    // Update local player state (optional)
-    if (players[socket.id]) {
-      players[socket.id].wgcBalance = balance;
-    }
+    console.log(`[WGC BALANCE] ${socket.user.username} → ${balance}`);
 
     socket.emit("wgcBalanceResponse", { wgc: balance });
     if (callback) callback({ wgc: balance });
 
-    console.log(`[WGC BALANCE] ${socket.user.username} → ${balance}`);
   } catch (err) {
     console.error("[WGC BALANCE ERROR]", err.message);
     if (callback) callback(null);
@@ -204,26 +203,25 @@ socket.on("spendWGC", async (amount, callback) => {
     const accessToken = socket.user?.wgcAccessToken;
     if (!accessToken) throw new Error("No WGC token");
 
-    // 🔥 Real deduction call to WGC
     const resp = await axios.post("https://api.worldgamecommunity.com/wallet/spend", {
-      amount: amount,
-      reason: "in-game-spend"   // or whatever your game uses
+      amount: parseFloat(amount),
+      reason: "in-game-spend"
     }, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
 
     const newBalance = resp.data?.newBalance ?? resp.data?.wgc ?? 0;
 
+    console.log(`[WGC SPEND] ${socket.user.username} spent ${amount} → ${newBalance}`);
+
     socket.emit("wgcBalanceResponse", { wgc: newBalance });
     if (callback) callback({ success: true, newBalance });
 
-    console.log(`[WGC SPEND] ${socket.user.username} spent ${amount} → new balance ${newBalance}`);
   } catch (err) {
     console.error("[WGC SPEND ERROR]", err.message);
     if (callback) callback({ success: false, error: err.message });
   }
 });
-
 
 
   // ========================================
