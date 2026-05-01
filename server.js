@@ -44,7 +44,7 @@ app.get("/", (req, res) => {
 });
 
 // ========================================
-// AUTH ENDPOINT
+// AUTH ENDPOINT (FINAL VERSION)
 // ========================================
 
 app.post("/auth/exchange", async (req, res) => {
@@ -55,34 +55,28 @@ app.post("/auth/exchange", async (req, res) => {
       return res.status(400).json({ error: "Missing authorization code" });
     }
 
-    console.log("[AUTH] Exchanging code:", code.substring(0, 10) + "...");
+    console.log(`[AUTH] Exchanging code: ${code.substring(0, 15)}...`);
 
-    // Build token exchange request
     const params = new URLSearchParams();
     params.append("grant_type", "authorization_code");
     params.append("code", code);
     params.append("client_id", OAUTH_CLIENT_ID);
     params.append("redirect_uri", OAUTH_REDIRECT_URI);
 
-    // Add client secret if required
     if (OAUTH_CLIENT_SECRET) {
       params.append("client_secret", OAUTH_CLIENT_SECRET);
     }
 
-    // Exchange code for tokens
     const tokenResp = await axios.post(OAUTH_TOKEN_URL, params, {
       headers: { "Content-Type": "application/x-www-form-urlencoded" }
     });
 
     const providerTokens = tokenResp.data;
-    console.log("[AUTH] Provider tokens received");
+    console.log("[AUTH] ✅ Provider tokens received successfully");
 
-    // Extract user info from token response
-    // Adjust these fields based on what your provider returns
     const providerUserId = providerTokens.user_id || providerTokens.sub || "unknown";
     const username = providerTokens.username || providerTokens.name || "Player";
 
-    // Create or update user in our DB (in-memory for now)
     let user = Object.values(users).find(u => u.providerUserId === providerUserId);
 
     if (!user) {
@@ -94,14 +88,13 @@ app.post("/auth/exchange", async (req, res) => {
         createdAt: new Date().toISOString()
       };
       users[userId] = user;
-      console.log("[AUTH] New user created:", userId);
+      console.log(`[AUTH] New user created: ${userId}`);
     } else {
       user.username = username;
       user.lastLogin = new Date().toISOString();
-      console.log("[AUTH] Existing user logged in:", user.userId);
+      console.log(`[AUTH] Existing user logged in: ${user.userId}`);
     }
 
-    // Create our own JWT
     const sessionToken = jwt.sign(
       {
         userId: user.userId,
@@ -123,6 +116,15 @@ app.post("/auth/exchange", async (req, res) => {
 
   } catch (err) {
     console.error("[AUTH] Exchange error:", err.response?.data || err.message);
+
+    // Special handling for already-redeemed code
+    if (err.response?.data?.error === 'invalid_grant') {
+      return res.status(400).json({
+        error: "invalid_grant",
+        message: "Authorization code has already been redeemed. Please log in again to get a fresh code."
+      });
+    }
+
     res.status(500).json({
       error: "Authentication failed",
       details: err.response?.data || err.message
