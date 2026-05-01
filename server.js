@@ -210,6 +210,7 @@ io.on("connection", (socket) => {
       const userId = socket.user.userId;
       const username = socket.user.username;
       const roomCode = createUniqueRoomCode();
+      const roomName = username; // default room name
 
       players[socket.id].roomCode = roomCode;
 
@@ -217,16 +218,18 @@ io.on("connection", (socket) => {
   roomCode,
   state: "WAITING", // WAITING | STARTING | RACING | FINISHED
   hostSocketId: socket.id,
+    roomName, // ✅ ADD THIS
   hostUserId: userId,
   hostUsername: username,
   selectedScene: "",
   players: [
-    {
-      socketId: socket.id,
-      userId,
-      username
-    }
-  ],
+  {
+    socketId: socket.id,
+    userId,
+    username,
+    ready: false
+  }
+],
   readyPlayers: new Set(),
   raceStartAt: null,
   finishOrder: [],
@@ -288,7 +291,8 @@ if (!alreadyInRoom) {
   room.players.push({
     socketId: socket.id,
     userId,
-    username
+    username,
+    ready: false
   });
 }
     socket.join(roomCode);
@@ -302,6 +306,26 @@ if (!alreadyInRoom) {
     console.error("[JOIN ROOM ERROR]", err);
     socket.emit("joinError", "Failed to join room");
   }
+});
+
+// ========================================
+// TOGGLE READY
+// ========================================
+socket.on("toggleReady", () => {
+  const player = players[socket.id];
+  if (!player) return;
+
+  const roomCode = player.roomCode;
+  if (!roomCode || !rooms[roomCode]) return;
+
+  const room = rooms[roomCode];
+
+  const roomPlayer = room.players.find(p => p.socketId === socket.id);
+  if (!roomPlayer) return;
+
+  roomPlayer.ready = !roomPlayer.ready;
+
+  io.to(roomCode).emit("roomUpdate", getRoomStateDto(roomCode));
 });
 
   // ========================================
@@ -335,6 +359,26 @@ if (!alreadyInRoom) {
       console.error("[SELECT MAP ERROR]", err);
     }
   });
+
+// ========================================
+// UPDATE ROOM NAME (Host Only)
+// ========================================
+socket.on("updateRoomName", (data) => {
+  const player = players[socket.id];
+  if (!player) return;
+
+  const roomCode = player.roomCode;
+  if (!roomCode || !rooms[roomCode]) return;
+
+  const room = rooms[roomCode];
+
+  if (room.hostSocketId !== socket.id) return;
+
+  room.roomName = data?.roomName || room.roomName;
+
+  io.to(roomCode).emit("roomUpdate", getRoomStateDto(roomCode));
+});
+
 
   // ========================================
   // START GAME
@@ -753,15 +797,17 @@ function getRoomStateDto(roomCode) {
   if (!room) return null;
 
   return {
-    roomCode: room.roomCode,
-    hostId: room.hostUserId,
-    hostUsername: room.hostUsername,
-    selectedScene: room.selectedScene,
-    players: room.players.map(p => ({
-      userId: p.userId,
-      username: p.username
-    }))
-  };
+  roomCode: room.roomCode,
+  roomName: room.roomName,   // ✅ ADD THIS
+  hostId: room.hostUserId,
+  hostUsername: room.hostUsername,
+  selectedScene: room.selectedScene,
+  players: room.players.map(p => ({
+    userId: p.userId,
+    username: p.username,
+    ready: p.ready
+  }))
+};
 }
 
 function handleLeaveRoom(socket) {
