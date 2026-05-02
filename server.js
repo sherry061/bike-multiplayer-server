@@ -47,7 +47,7 @@ app.get("/", (req, res) => {
 // AUTH - VALIDATE WGC TOKEN (NEW)
 app.post("/auth/validate", async (req, res) => {
   try {
-    const { access_token } = req.body;
+    const access_token = req.headers.authorization?.split(" ")[1];
     if (!access_token) return res.status(400).json({ error: "Missing access_token" });
 
     console.log(`[AUTH] Validating WGC access_token...`);
