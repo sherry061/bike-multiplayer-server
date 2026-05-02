@@ -400,21 +400,16 @@ socket.on("toggleReady", () => {
 socket.on("updateRoomName", (data) => {
   const player = players[socket.id];
   if (!player) return;
- 
+
   const roomCode = player.roomCode;
   if (!roomCode || !rooms[roomCode]) return;
- 
+
   const room = rooms[roomCode];
+
   if (room.hostSocketId !== socket.id) return;
- 
-  const newName = data?.roomName?.trim();
-  if (!newName) return;
- 
-  room.roomName = newName;
- 
-  console.log(`[ROOM NAME] ${roomCode} → "${newName}"`);
- 
-  // FIX: broadcast to ALL players in room, not just emitter
+
+  room.roomName = data?.roomName || room.roomName;
+
   io.to(roomCode).emit("roomUpdate", getRoomStateDto(roomCode));
 });
 
@@ -441,65 +436,56 @@ socket.on("setRoomPrivacy", (data) => {
   // ========================================
 
   socket.on("startGame", () => {
-  try {
-    const roomCode = players[socket.id]?.roomCode;
-    if (!roomCode || !rooms[roomCode]) return;
- 
-    const room = rooms[roomCode];
- 
-    if (room.hostSocketId !== socket.id) return;
- 
-    // FIX: ignore if already starting or started
-    if (room.state !== "WAITING") {
-      console.log(`[START GAME] Ignored duplicate startGame for ${roomCode} (state=${room.state})`);
-      return;
-    }
- 
-    if (room.players.length < 2) {
-      socket.emit("startError", "Need at least 2 players");
-      return;
-    }
- 
-    if (!room.selectedScene) {
-      socket.emit("startError", "No map selected");
-      return;
-    }
- 
-    // Immediately transition to STARTING to block duplicate calls
-    room.state = "STARTING";
-    room.finishOrder = [];
-    room.finishedPlayers = new Set();
- 
-    const startAt = Date.now() + 8000;
- 
-    // Emit gameStarting ONCE to all players in room
-    io.to(roomCode).emit("gameStarting", {
-      sceneName: room.selectedScene,
-      startAt
-    });
- 
-    room.raceStartAt = startAt;
- 
-    for (const p of room.players) {
-      if (players[p.socketId]) {
-        players[p.socketId].currentCheckpoint = 0;
+    try {
+      const roomCode = players[socket.id]?.roomCode;
+      if (!roomCode || !rooms[roomCode]) return;
+
+      const room = rooms[roomCode];
+
+      // Only host can start
+      if (room.hostSocketId !== socket.id) return;
+
+      if (room.players.length < 2) {
+        socket.emit("startError", "Need at least 2 players");
+        return;
       }
-    }
- 
-    // Transition to RACING after countdown
-    setTimeout(() => {
-      if (rooms[roomCode]) {
-        rooms[roomCode].state = "RACING";
-        console.log(`[RACE STATE] ${roomCode} → RACING`);
+
+      if (!room.selectedScene) {
+        socket.emit("startError", "No map selected");
+        return;
       }
-    }, 8000);
- 
-    console.log(`[GAME STARTING] ${roomCode} → ${room.selectedScene} at ${startAt}`);
- 
-  } catch (err) {
-    console.error("[START GAME ERROR]", err);
+room.state = "STARTING";
+room.finishOrder = [];
+room.finishedPlayers = new Set();
+      const startAt = Date.now() + 8000;
+
+      io.to(roomCode).emit("gameStarting", {
+        sceneName: room.selectedScene,
+        startAt
+      });
+
+      room.raceStartAt = startAt;
+
+for (const p of room.players) {
+  if (players[p.socketId]) {
+    players[p.socketId].currentCheckpoint = 0;
   }
-});
+}
+// Change state to RACING after countdown
+setTimeout(() => {
+  if (rooms[roomCode]) {
+    rooms[roomCode].state = "RACING";
+    console.log(`[RACE STATE] ${roomCode} → RACING`);
+  }
+}, 8000);
+
+      console.log(`[GAME STARTING] ${roomCode} → ${room.selectedScene} at ${startAt}`);
+
+    } catch (err) {
+      console.error("[START GAME ERROR]", err);
+    }
+  });
+
   // ========================================
 // QUICK MATCH
 // ========================================
