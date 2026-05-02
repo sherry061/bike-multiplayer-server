@@ -413,6 +413,23 @@ socket.on("updateRoomName", (data) => {
   io.to(roomCode).emit("roomUpdate", getRoomStateDto(roomCode));
 });
 
+socket.on("setRoomPrivacy", (data) => {
+    const player = players[socket.id];
+    if (!player) return;
+
+    const roomCode = player.roomCode;
+    if (!roomCode || !rooms[roomCode]) return;
+
+    const room = rooms[roomCode];
+    if (room.hostSocketId !== socket.id) return; // host only
+
+    room.isPublic = data?.isPublic === true;
+
+    console.log(`[ROOM PRIVACY] ${roomCode} → ${room.isPublic ? "Public" : "Private"}`);
+
+    io.to(roomCode).emit("roomUpdate", getRoomStateDto(roomCode));
+});
+
 
   // ========================================
   // START GAME
@@ -517,6 +534,7 @@ socket.on("quickMatch", () => {
         state: "WAITING",
         hostSocketId: socket.id,
         hostUserId: userId,
+        isPublic: true,          // ← ADD
         hostUsername: username,
         selectedScene: "",
         players: [
@@ -552,7 +570,7 @@ socket.on("getPublicRooms", () => {
     for (const code in rooms) {
       const room = rooms[code];
 
-      if (room.state === "WAITING") {
+      if (room.state === "WAITING" && room.isPublic === true) { // ← filter here
         publicRooms.push({
           roomCode: room.roomCode,
           hostUsername: room.hostUsername,
@@ -835,6 +853,7 @@ function getRoomStateDto(roomCode) {
   roomName: room.roomName,   // ✅ ADD THIS
   hostId: room.hostUserId,
   hostUsername: room.hostUsername,
+  isPublic: room.isPublic ?? true,
   selectedScene: room.selectedScene,
   players: room.players.map(p => ({
     userId: p.userId,
